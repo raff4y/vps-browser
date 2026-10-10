@@ -28,7 +28,13 @@ type App struct {
 	tlsMode     string // "acme" (Let's Encrypt), "internal" (self-signed, local testing) or "proxy" (HTTPS done by e.g. Coolify)
 	policiesDir string // Chromium "recommended" policies, shared with the browser container
 	controlDir  string // restart requests, shared with the browser container
+	// Until this time, setup is open to anyone without the private link, so a
+	// fresh install can be finished just by opening the domain.
+	openSetupUntil time.Time
 }
+
+// How long setup stays open without the link after a fresh install starts.
+const openSetupWindow = time.Hour
 
 func main() {
 	log.SetFlags(0)
@@ -84,8 +90,11 @@ func serve(store *Store) {
 	}
 
 	if cfg := store.Get(); !cfg.Configured {
+		app.openSetupUntil = time.Now().Add(openSetupWindow)
 		go func() {
 			log.Printf("Not set up yet. Open the setup page: %s", setupURL(tlsMode, app.publicIP.Get(), cfg.SetupToken))
+			log.Printf("Until %s, setup is also open to anyone who opens your domain or server IP; after that it needs the link above.",
+				app.openSetupUntil.UTC().Format("15:04 UTC"))
 		}()
 	}
 

@@ -39,7 +39,7 @@ When it finishes, it prints a private setup link like:
 http://203.0.113.10/_vb/setup?token=...
 ```
 
-Open it in your browser and follow the wizard:
+Open it in your browser and follow the wizard. For the **first hour** after install you don't even need the link: just open `http://YOUR-SERVER-IP` or your domain and you land on the setup page. After that hour, setup only opens with the link.
 
 1. **Welcome:** checks the server (IP, memory, CPU).
 2. **Domain:** enter e.g. `browse.example.com`, add the A record it shows at your DNS provider, and click **Check DNS**.
@@ -53,7 +53,7 @@ Open it in your browser and follow the wizard:
 
 From then on, go to `https://your-domain` and sign in. The dashboard is at `https://your-domain/_vb/`.
 
-> **Keep the setup link private** until you've finished. Anyone with it could set up the server. It stops working once setup is done.
+> **Finish setup soon after installing.** During the first hour anyone who finds your server or domain can set it up, and after that anyone with the setup link can. Both stop working once setup is done.
 
 ### Deploy with Coolify
 
@@ -62,7 +62,7 @@ If your server runs [Coolify](https://coolify.io), its proxy already owns ports 
 1. Create a **Docker Compose** application from this repo and set **Docker Compose Location** to `/docker-compose.coolify.yml`.
 2. Give the **`caddy`** service your domain (e.g. `https://browse.example.com`). Leave `panel` and `browser` **without** a domain, otherwise the sign-in is skipped.
 3. Deploy. Optionally set a `TZ` environment variable (e.g. `Asia/Karachi`).
-4. Open the **panel** service's logs in Coolify and find the line `Open the setup page: https://YOUR-DOMAIN/_vb/setup?token=…`. Open that link with your domain in place of `YOUR-DOMAIN`. The wizard skips the domain step, since Coolify manages it.
+4. Within an hour of the first deploy, open `https://your-domain`: it goes straight to the setup wizard. (Later than that, open the **panel** service's logs in Coolify, find `Open the setup page: https://YOUR-DOMAIN/_vb/setup?token=…`, and open that link with your domain in place of `YOUR-DOMAIN`.) The wizard skips the domain step, since Coolify manages it.
 
 Forgot your password on Coolify? On the server, run `docker exec $(docker ps -qf name=panel) /panel reset`, then look in the panel logs for the new setup link.
 

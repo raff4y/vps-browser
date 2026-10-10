@@ -112,6 +112,15 @@ func validSetup(r *http.Request, cfg Config) bool {
 	return err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(cfg.SetupToken)) == 1
 }
 
+// canSetup: setup isn't finished, and either the request has the setup link
+// or we're still in the open window right after a fresh install.
+func (a *App) canSetup(r *http.Request, cfg Config) bool {
+	if cfg.Configured {
+		return false
+	}
+	return validSetup(r, cfg) || time.Now().Before(a.openSetupUntil)
+}
+
 // Limiter locks out an IP after repeated failed sign-ins: 5 failures lock it
 // for 1 minute, and each further failure doubles the lock, up to 1 hour.
 type Limiter struct {

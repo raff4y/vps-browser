@@ -221,7 +221,7 @@ func (a *App) setupPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/_vb/setup", http.StatusFound) // drop the token from the address bar
 		return
 	}
-	if !validSetup(r, cfg) {
+	if !a.canSetup(r, cfg) {
 		a.render(w, http.StatusForbidden, "setup_locked.html", setupLockedData{Version: version})
 		return
 	}
@@ -478,7 +478,7 @@ func (a *App) requireSession(h http.HandlerFunc) http.HandlerFunc {
 
 func (a *App) requireSetup(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !validSetup(r, a.store.Get()) {
+		if !a.canSetup(r, a.store.Get()) {
 			jsonError(w, http.StatusForbidden, "Setup link missing or expired. Run: sudo vps-browser setup-url")
 			return
 		}
@@ -489,7 +489,7 @@ func (a *App) requireSetup(h http.HandlerFunc) http.HandlerFunc {
 func (a *App) requireSetupOrSession(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := a.store.Get()
-		if !validSetup(r, cfg) && !validSession(r, cfg) {
+		if !a.canSetup(r, cfg) && !validSession(r, cfg) {
 			jsonError(w, http.StatusUnauthorized, "Not signed in.")
 			return
 		}

@@ -9,7 +9,7 @@
       {{if .Error}}
       <div class="alert alert-warn" role="alert">{{template "i-alert"}}<p>{{.Error}}</p></div>
       {{end}}
-      <p class="muted">To keep strangers from setting up your server before you do, setup only opens with the private link the installer printed.</p>
+      <p class="muted">Setup is open to anyone for the first hour after install. That hour has passed, so to keep strangers from setting up your server before you do, it now only opens with the private link the installer printed.</p>
       <p class="muted">Lost it? Run this on your server to show it again:</p>
       <pre class="cmd"><code>sudo vps-browser setup-url</code></pre>
     </div>
