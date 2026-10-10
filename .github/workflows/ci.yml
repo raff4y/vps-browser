@@ -10,27 +10,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint setup.sh
-        run: shellcheck setup.sh
+      - name: Lint shell scripts
+        run: shellcheck -s bash install.sh vps-browser browser/restart-watcher
 
-      - name: Build a test .env
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: panel/go.mod
+          cache-dependency-path: panel/go.sum
+
+      - name: Vet and build the panel
+        working-directory: panel
         run: |
-          HASH=$(docker run --rm caddy:2 caddy hash-password --plaintext ci-test-password)
-          sed "s|^AUTH_HASH=.*|AUTH_HASH='$HASH'|" .env.example > .env
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "Run gofmt"; exit 1; }
+          go vet ./...
+          go build ./...
 
-      - name: Validate docker-compose.yml
-        run: docker compose config -q
-
-      - name: Validate docker-compose.coolify.yml
-        run: docker compose -f docker-compose.coolify.yml config -q
-
-      - name: Browser container must not publish any ports
+      - name: Validate compose files
         run: |
-          for f in docker-compose.yml docker-compose.coolify.yml; do
-            docker compose -f "$f" config --format json \
-              | jq -e '.services.browser.ports == null' > /dev/null \
-              || { echo "$f: the browser service publishes a port, which bypasses the login."; exit 1; }
-          done
+          docker compose config -q
+          docker compose -f docker-compose.coolify.yml config -q
+
+      - name: Only Caddy may publish ports
+        run: |
+          docker compose config --format json \
+            | jq -e '.services.browser.ports == null and .services.panel.ports == null' > /dev/null \
+            || { echo "browser/panel must not publish ports: that would bypass the sign-in."; exit 1; }
 
       - name: Coolify stack must not publish any host ports
         run: |
@@ -38,17 +42,14 @@ jobs:
             | jq -e '[.services[].ports] | all(. == null)' > /dev/null \
             || { echo "Coolify's proxy owns 80/443; docker-compose.coolify.yml must not publish ports."; exit 1; }
 
-      - name: Validate Caddyfile
+      - name: Validate Caddyfiles
         run: |
-          set -a; . ./.env; set +a
-          docker run --rm \
-            -e DOMAIN -e ACME_EMAIL -e AUTH_USER -e AUTH_HASH \
-            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
-            caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-
-      - name: Build and validate the Coolify Caddy image
-        run: |
-          set -a; . ./.env; set +a
+          for mode in acme internal; do
+            docker run --rm -e TLS_MODE=$mode -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+              caddy:2 caddy validate --config /etc/caddy/Caddyfile
+          done
           docker build -t vps-browser-caddy-coolify ./coolify
-          docker run --rm -e AUTH_USER -e AUTH_HASH vps-browser-caddy-coolify \
-            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          docker run --rm vps-browser-caddy-coolify caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Build images
+        run: docker compose build

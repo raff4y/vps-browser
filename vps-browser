@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Manage a vps-browser install. Installed as /usr/local/bin/vps-browser.
+set -euo pipefail
+
+DIR=$(dirname "$(readlink -f "$0")")
+cd "$DIR"
+
+if [[ $EUID -ne 0 ]]; then
+  exec sudo "$0" "$@"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: vps-browser <command>
+
+  status          Show what's running
+  logs [service]  Follow the logs (services: caddy, panel, browser)
+  restart         Restart everything
+  stop | start    Stop or start everything
+  update          Download the latest version and restart
+  setup-url       Show the setup link (before setup is finished)
+  reset           Forgot your password? Re-open setup (keeps your browser profile)
+  backup          Save the browser profile and settings to a .tgz file
+  restore <file>  Restore a backup made with 'backup'
+  uninstall       Remove vps-browser and ALL its data
+  version         Show the installed version
+EOF
+}
+
+case "${1:-help}" in
+  status)
+    docker compose ps
+    ;;
+  logs)
+    shift
+    docker compose logs -f --tail=100 "$@"
+    ;;
+  restart)
+    docker compose restart
+    ;;
+  stop)
+    docker compose stop
+    ;;
+  start)
+    docker compose up -d
+    ;;
+  update)
+    git pull --ff-only
+    docker compose build --pull
+    docker compose up -d --remove-orphans
+    docker image prune -f >/dev/null
+    echo "Updated to v$(docker compose exec -T panel /panel version)."
+    ;;
+  setup-url)
+    docker compose exec -T panel /panel setup-url
+    ;;
+  reset)
+    docker compose exec -T panel /panel reset
+    ;;
+  backup)
+    file="vps-browser-backup-$(date +%Y%m%d-%H%M%S).tgz"
+    docker run --rm -v vps-browser-data:/mnt/profile:ro -v vps-browser-panel:/mnt/panel:ro \
+      -v "$DIR":/backup alpine tar czf "/backup/$file" -C /mnt profile panel
+    chmod 600 "$file"
+    echo "Saved $DIR/$file"
+    echo "It contains your logged-in sessions and settings. Keep it private."
+    ;;
+  restore)
+    [[ -f "${2:-}" ]] || { echo "Usage: vps-browser restore <backup.tgz>" >&2; exit 1; }
+    src=$(readlink -f "$2")
+    read -rp "This replaces the current browser profile and settings. Continue? [y/N] " ans
+    [[ "$ans" =~ ^[Yy] ]] || exit 1
+    docker compose stop browser panel
+    docker run --rm -v vps-browser-data:/mnt/profile -v vps-browser-panel:/mnt/panel \
+      -v "$(dirname "$src")":/backup:ro alpine sh -c \
+      "find /mnt/profile /mnt/panel -mindepth 1 -delete && tar xzf '/backup/$(basename "$src")' -C /mnt"
+    docker compose up -d
+    echo "Restored."
+    ;;
+  uninstall)
+    echo "This stops vps-browser and deletes its data: browser profile, settings and certificates."
+    read -rp "Type 'delete' to continue: " ans
+    [[ "$ans" == "delete" ]] || exit 1
+    docker compose down -v --rmi local
+    rm -f /usr/local/bin/vps-browser
+    echo "Removed. The code is still in $DIR; delete it with: rm -rf $DIR"
+    ;;
+  version)
+    docker compose exec -T panel /panel version
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

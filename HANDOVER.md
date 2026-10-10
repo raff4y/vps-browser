@@ -1,168 +1,185 @@
 # HANDOVER — vps-browser
 
-Technical notes for anyone (human or AI agent) working on this repo: the goal, architecture, decisions, testing and roadmap.
+Technical notes for anyone (human or AI agent) working on this repo: the goal, architecture, design decisions, how to test, and the roadmap. User-facing docs are in [README.md](README.md).
 
 ---
 
-## 1. What we're building (the goal)
+## 1. Goal
 
-The user lives somewhere that blocks or throttles some websites (for example, Pakistan blocked YouTube from 2012 to 2016 and X/Twitter in 2024–25). They have a **VPS** in another country and want to:
+An open-source, self-hosted **remote browser** that anyone can deploy on their own VPS:
 
-1. Open **their own domain** (e.g. `https://browse.example.com`) from any device.
-2. Get a **username/password login prompt**.
-3. After logging in, use a **full web browser that actually runs on the VPS**, so every website sees the **VPS's IP address and uses the VPS's internet connection**, not the user's local connection.
+1. Run one command on a fresh server.
+2. Finish setup in a web wizard: domain, account, start page. No config files.
+3. Open `https://their-domain`, sign in, and use a real Chromium that runs on the server, so websites see the server's IP and connection.
 
-It is a self-hosted "remote browser" (browser isolation). The user's device only receives a video-like stream of the remote browser and sends back mouse and keyboard input. Nothing is installed on the client device, no VPN app is needed, and any modern browser works (phone or PC).
+The client only receives a video-like stream and sends input back. Nothing is installed on the client, and no VPN is involved.
 
-**Non-goals for v1:** no multiple users or accounts system, no VPN, and no system-wide proxy. Those are listed as possible future work in §8.
+**Non-goals (for now):** multiple users, VPN or system-wide proxy, and hosting more than one domain at a time. See §8.
 
 ---
 
 ## 2. Architecture
 
 ```
- User's device                                VPS (abroad)
- ┌─────────────────────┐   HTTPS :443   ┌──────────────────────────────────────────┐
- │ Any browser          │──────────────▶│ caddy (container)                         │
- │ https://DOMAIN       │◀──────────────│  - auto HTTPS (Let's Encrypt)             │
- └─────────────────────┘  websocket     │  - basic_auth (username + bcrypt hash)    │
-                          stream        │  - reverse_proxy → browser:3000           │
-                                        │            │  (private docker network)    │
-                                        │            ▼                              │
-                                        │ browser (container)                       │
-                                        │  lscr.io/linuxserver/chromium             │
-                                        │  - real Chromium on a virtual desktop     │
-                                        │  - streamed to the web page               │
-                                        │  - browses using the VPS IP ─────────────────▶ Internet
-                                        └──────────────────────────────────────────┘
+ User's device                        VPS
+ ┌──────────────┐  :80/:443   ┌──────────────────────────────────────────────────────┐
+ │ any browser  │────────────▶│ caddy  (only service with published ports)           │
+ └──────────────┘             │  https://  on-demand TLS ── ask ──▶ panel:8081        │
+                              │    /_vb/*  ───────────────────────▶ panel:8080        │
+                              │    /*      forward_auth panel:8080/_vb/auth/check     │
+                              │            then ──────────────────▶ browser:3000      │
+                              │  http://   ───────────────────────▶ panel:8080        │
+                              │                                                      │
+                              │ panel  (Go, distroless, non-root, NO docker socket)  │
+                              │  setup wizard · sign-in · dashboard · auth check     │
+                              │  volumes: panel-data, browser-policies (rw),         │
+                              │           browser-control (rw)                       │
+                              │                                                      │
+                              │ browser  (linuxserver/chromium + restart watcher)    │
+                              │  volumes: browser-data:/config,                      │
+                              │   browser-policies:/etc/chromium/policies/recommended│
+                              │   browser-control:/vps-browser (both read-only)      │
+                              └──────────────────────────────────────────────────────┘
+ networks: edge = caddy + browser · control = caddy + panel
 ```
 
-- **Only Caddy publishes ports** (80, 443/tcp, 443/udp). The `browser` container has **no published ports**. It can only be reached through Caddy on the `internal` docker network. **Never add `ports:` to the browser service**, because that would skip the login.
-- The login is HTTP basic auth done by Caddy, so the browser shows its built-in username/password popup. The password is stored only as a bcrypt hash.
-- Browser data (bookmarks, cookies, logged-in sites, history) persists in the Docker named volume `vps-browser-data`. It is deliberately **not** a bind mount: the Selkies desktop creates its Wayland Unix socket in `/config/.XDG`, and Docker Desktop bind mounts on Windows/macOS can't hold sockets (the compositor fails with `could not bind a wayland-N socket ... os error 5`).
-- TLS certs persist in `./data/caddy`.
+### Request flow
+- **Before setup:** `http://SERVER-IP` goes to the panel, which serves `/_vb/setup`. That page is only usable with the **setup token** printed by the installer (`/_vb/setup?token=…` sets an HttpOnly cookie and then redirects to drop the token from the URL).
+- **Setup done:** the domain is saved in `panel-data/config.json`. The first HTTPS request for that domain makes Caddy ask `panel:8081/tls-allowed?domain=…`. Only the configured domain gets a certificate (**on-demand TLS**), so **changing the domain needs no Caddy reload**.
+- **Browser access:** Caddy's `forward_auth` calls `/_vb/auth/check`. The panel returns 200 for a valid session cookie. Otherwise it returns a 302 to `/_vb/login` (for page loads) or a 401 (for assets and websockets). The `Upgrade`/`Connection` headers are stripped from the auth subrequest.
+- **Plain HTTP after setup:** redirects to `https://DOMAIN`, except `/_vb/api/cert-status` and static files, which the wizard's final "waiting for HTTPS" screen polls from `http://SERVER-IP`.
+- **Wrong host over HTTPS** (e.g. an old domain whose certificate Caddy still has cached): redirects to the current domain.
 
-### Why this stack (decisions already made — don't re-litigate without reason)
+### Panel (`panel/`)
+- Go standard library plus `golang.org/x/crypto/bcrypt`. Templates and static files are embedded (`web/`), with no JS build step.
+- `config.json` holds the domain, username, bcrypt hash (cost 12), session secret, session version, start page, setup token and the last 8 sign-ins. It's written atomically and re-read when its mtime changes, so CLI commands affect the running server.
+- **Sessions:** an HMAC-signed cookie `vb_session` = base64(user)|version|expiry, valid for 30 days, HttpOnly, Secure, SameSite=Lax. Bumping `SessionVersion` signs everyone out. That happens on password or username change, "sign out others" and `reset`, and the current session is re-issued.
+- **CSRF:** every POST must carry a matching `Origin` (or `Referer`).
+- **Brute force:** a per-IP lockout after 5 failures (1 min, doubling, max 1 h), held in memory. The IP comes from `X-Forwarded-For`, which Caddy overwrites with the real client IP (verified: a spoofed header is ignored).
+- **CSP** is `default-src 'self'`, so there are no inline scripts or styles. Use classes, not `style=` attributes.
+- **CLI:** `/panel serve | setup-url | reset | version`. `reset` re-opens setup (keeping the domain and profile) and prints a new token URL.
+- **Start page:** written as Chromium **recommended** policies (`HomepageLocation`, `RestoreOnStartup`, `RestoreOnStartupURLs`) into the shared `browser-policies` volume. They're defaults, so the user can still override them inside Chromium.
+- **Restart browser:** the panel writes a timestamp to `browser-control/restart`. `browser/restart-watcher` (an s6 custom service in the browser image) notices it and kills Chromium, and the image's own watchdog (`RESTART_APP=true`) relaunches it. **The panel deliberately has no Docker socket.**
+- **Public IP:** the `PUBLIC_IP` env var, or ipify / icanhazip / ifconfig.me, cached for 10 minutes.
+- **DNS check:** resolves A/AAAA and compares them with the public IP. It warns about Cloudflare's proxy and about stray AAAA records.
 
+### Proxy mode (`TLS_MODE=proxy`, used for Coolify)
+- HTTPS and the domain belong to the outer proxy. The panel skips its HTTP-to-HTTPS and wrong-host redirects, the wizard hides the domain step (the domain is taken from the `Host` of the setup request), `cert-status` is always ready, and changing the domain from the dashboard is refused.
+- The setup link is printed in the panel's logs as `https://YOUR-DOMAIN/_vb/setup?token=…`. The panel image has no shell, so Coolify's terminal can't be used; run `docker exec <panel> /panel reset` on the host instead.
+- Client IP: both Caddyfiles send `X-Real-IP {client_ip}` to the panel. Behind Coolify, `trusted_proxies_strict` parses `X-Forwarded-For` right to left, so a client can't spoof it.
+
+### Why these choices (don't re-litigate without reason)
 | Decision | Reason |
 |---|---|
-| `linuxserver/chromium` image | Maintained, single HTTP port (3000), audio and clipboard support, persistent profile, simple env-var config. LinuxServer has been moving its GUI images from the KasmVNC base to the Selkies base. Either way it serves the web UI on port 3000, so the proxy config is the same. |
-| Caddy | Automatic HTTPS with zero config, websocket proxying works out of the box, built-in `basic_auth` with bcrypt. |
-| Basic auth at the proxy | Simplest secure option. The browser container's own auth (`CUSTOM_USER`/`PASSWORD`) is deliberately **not** used, so there is no double login. |
-| Docker Compose | One command to deploy on any Linux VPS. |
+| `linuxserver/chromium` | Maintained, a single HTTP port (3000), audio and clipboard, a persistent profile, and a built-in watchdog. The current base is Selkies (Wayland, websocket stream on `/api/websockets`). |
+| Named volume for `/config` | Selkies creates its Wayland Unix socket in `/config/.XDG`. Docker Desktop bind mounts on Windows/macOS can't hold sockets (the compositor fails with `os error 5`). |
+| Caddy on-demand TLS + `ask` | The domain can be set and changed from the UI without editing or reloading Caddy, and only the configured domain can get a certificate. |
+| `forward_auth` to the panel | A real sign-in page (not the basic-auth popup), lockout, sign-out, and session management. |
+| No Docker socket in the panel | The panel faces the internet. Docker access is root on the host. |
+| Separate `edge` / `control` networks | The remote Chromium (which the user drives) can't reach the panel's internal endpoints. |
+| Setup token | Otherwise anyone who finds a fresh server's IP could claim it first. |
+| DuckDNS as the "no domain" suggestion | `sslip.io` and `nip.io` are **not** on the Public Suffix List, so all their users share one Let's Encrypt rate limit and issuance often fails. DuckDNS is on the PSL. |
+| Images built on the server | Fully open source and reproducible, with no registry or CI publishing needed. The first install takes a few minutes. |
 
-**Alternative considered:** [m1k1o/neko](https://github.com/m1k1o/neko) streams over WebRTC, so video and YouTube are smoother. It needs an extra UDP/TCP port for WebRTC and is more complex to set up. It's the upgrade path if video quality over the current stream isn't good enough (see §8).
+**Alternative considered:** [m1k1o/neko](https://github.com/m1k1o/neko) (WebRTC, smoother video). It needs an extra UDP port. It's the upgrade path if the stream quality isn't enough (§8).
 
 ---
 
 ## 3. Repo layout
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `docker-compose.yml` | Two services: `browser` (Chromium) and `caddy` (HTTPS + login). |
-| `Caddyfile` | Caddy config. Reads `DOMAIN`, `ACME_EMAIL`, `AUTH_USER`, `AUTH_HASH` from env via `{$VAR}`. |
-| `docker-compose.coolify.yml` | Variant for Coolify. Coolify's proxy owns 80/443 and does TLS, so nothing publishes host ports; Coolify routes the domain to `caddy:80`. |
-| `coolify/` | `Dockerfile` + plain-HTTP `Caddyfile` (basic auth only) baked into a Caddy image. Baked in because Coolify copies only the compose file to the server, so a `./Caddyfile` bind mount becomes an empty directory and Caddy fails to start. |
-| `.env.example` | Template for `.env`. |
-| `.env` | **Real secrets, git-ignored.** Created by `setup.sh` on the VPS. |
-| `setup.sh` | One-shot installer for an Ubuntu/Debian VPS. Installs Docker, asks for domain, email, username, password, start page and timezone (or reads them from env vars), hashes the password, writes `.env`, checks DNS, opens the ufw firewall, then runs `docker compose up -d`. Safe to re-run. |
-| `.gitignore` | Ignores `.env` and `data/`. |
-| `.gitattributes` | Forces LF line endings so `setup.sh` runs on Linux even when edited on Windows. |
-| `.github/workflows/ci.yml` | CI: shellcheck, compose and Caddyfile validation, and a check that the browser service publishes no ports. |
-| `LICENSE` | MIT. |
-| `README.md` | Short human-facing usage guide. |
-| `HANDOVER.md` | This file. |
+| `install.sh` | One-line installer (`curl … \| sudo bash`): installs git/curl/Docker, adds swap on small servers, checks ports 80/443, clones to `/opt/vps-browser`, opens ufw/firewalld, links the CLI, builds, starts, and prints the setup URL. Re-running it updates the install. Supports the `REPO_URL`, `BRANCH` and `INSTALL_DIR` env vars (useful for forks). |
+| `vps-browser` | Management CLI (symlinked to `/usr/local/bin`): status, logs, restart, stop/start, update, setup-url, reset, backup/restore, uninstall, version. |
+| `docker-compose.yml` | The caddy, panel and browser services, plus networks and volumes. |
+| `docker-compose.coolify.yml` | Variant for Coolify. Coolify's proxy owns 80/443 and does TLS, so nothing publishes host ports; Coolify routes the domain to `caddy:80`. The panel runs with `TLS_MODE=proxy`. |
+| `coolify/` | `Dockerfile` + plain-HTTP `Caddyfile` (routing + `forward_auth`, `trusted_proxies private_ranges` + `trusted_proxies_strict`) baked into a Caddy image. Baked in because Coolify copies only the compose file to the server, so a `./Caddyfile` bind mount becomes an empty directory and Caddy fails to start. |
+| `Caddyfile` | Routing and on-demand TLS. `TLS_MODE` picks the `tls_acme` or `tls_internal` snippet. |
+| `panel/` | Control panel source (Go) and its `Dockerfile`. `web/templates`, `web/static`. |
+| `browser/` | The browser image: linuxserver/chromium plus `restart-watcher`. |
+| `.env.example` | Optional settings: `TZ`, `PUBLIC_IP`, `TLS_MODE`, `HTTP_PORT`/`HTTPS_PORT`. Not needed for a normal install. |
+| `docs/` | README screenshots (taken with the example IP 203.0.113.10 and domain browse.example.com). |
+| `.github/workflows/ci.yml` | CI: shellcheck, go vet/build, compose and Caddyfile validation, a no-ports guard on the browser service. |
 
-### Environment variables (`.env`)
-
-| Var | Example | Notes |
-|---|---|---|
-| `DOMAIN` | `browse.example.com` | Needs a DNS **A record** pointing at the VPS IP. `localhost` works for local testing (Caddy uses its own internal CA, so the certificate warning is expected). |
-| `ACME_EMAIL` | `you@example.com` | Let's Encrypt contact email. |
-| `AUTH_USER` | `admin` | Login username. |
-| `AUTH_HASH` | `'$2a$14$...'` | bcrypt hash. **Must be wrapped in single quotes** in `.env`, otherwise Compose treats the `$` signs as variables. Generate it with `docker run --rm caddy:2 caddy hash-password --plaintext 'PASSWORD'`. |
-| `START_PAGE` | `https://www.youtube.com` | Passed to Chromium via `CHROME_CLI`. |
-| `TZ` | `UTC` | Timezone inside the browser (e.g. `Asia/Karachi`). |
+### Volumes
+| Volume | Contents |
+|---|---|
+| `vps-browser-data` | Chromium profile: cookies, sessions, bookmarks. **Sensitive.** |
+| `vps-browser-panel` | `config.json`: password hash, session secret. **Sensitive.** |
+| `vps-browser-certs` | Caddy's certificates and ACME account. |
+| `browser-policies`, `browser-control` | Panel to browser hand-off. Recreated as needed. |
 
 ---
 
-## 4. How to deploy (on the VPS)
+## 4. Deploying
 
-Requirements: Ubuntu 22.04+/Debian 12+ VPS, **2 GB RAM minimum (4 GB recommended)**, root access, and a domain or subdomain with an A record pointing at the VPS IP. Ports 80 and 443 must be open in the cloud provider's firewall or security group.
+See the README. In short, `curl -fsSL https://raw.githubusercontent.com/raff4y/vps-browser/main/install.sh | sudo bash`, then open the printed link.
 
-```bash
-# on the VPS
-git clone https://github.com/raff4y/vps-browser.git
-cd vps-browser
-sudo ./setup.sh
-```
-
-Then open `https://DOMAIN` and log in.
-
-Manual alternative: `cp .env.example .env`, edit it, then `docker compose up -d`.
-
-### Day-to-day ops
-
-```bash
-docker compose ps                    # status
-docker compose logs -f caddy         # HTTPS / login issues
-docker compose logs -f browser       # browser issues
-docker compose pull && docker compose up -d   # update images
-docker compose restart browser       # browser frozen
-docker compose down                  # stop everything
-```
-
-To change the password, re-run `sudo ./setup.sh` and choose to reconfigure, or generate a new hash, replace `AUTH_HASH` in `.env` (keep the single quotes), then run `docker compose up -d caddy`.
+Requirements: Ubuntu 22.04+/Debian 12+ (or another Linux with Docker), 2 GB+ RAM, ports 80/443 open, and a domain with an A record pointing at the server.
 
 ---
 
-## 5. How to test locally (Windows, Docker Desktop)
+## 5. Local development and testing
 
-```powershell
-# in the repo folder: create .env from .env.example with DOMAIN=localhost
-# and the hash of a test password (e.g. test123)
-docker compose up -d
+```bash
+TLS_MODE=internal docker compose up -d --build
+docker compose exec panel /panel setup-url     # use http://localhost/_vb/setup?token=… and domain "localhost"
 ```
 
-Open `https://localhost`, accept the self-signed certificate warning, and log in.
+`TLS_MODE=internal` uses Caddy's own CA and also allows `localhost` as a domain. Build or vet the panel without a local Go install:
 
-Things to verify:
-1. Without credentials, `curl -k -I https://localhost` returns **401**.
-2. With credentials, `curl -k -I -u admin:test123 https://localhost` returns **200**.
-3. The page loads a Chromium desktop, and you can browse and play a YouTube video with sound.
-4. Inside the remote browser, visiting `https://api.ipify.org` shows the **VPS IP** (when tested locally it shows the home IP, which is expected).
-5. Nothing answers on port 3000 from the host (the browser container isn't exposed).
-6. The stream websocket is guarded too: an upgrade request to `/api/websockets` returns **401** without credentials and **101** with them:
-   `curl -sk --http1.1 -u admin:test123 -i -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' https://localhost/api/websockets`
+```bash
+docker run --rm -v "$PWD/panel:/src" -w /src golang:1.26-alpine sh -c 'gofmt -l . && go vet ./... && go build ./...'
+```
 
-Ports 80 and 443 must be free on the PC. If IIS, Skype or another app holds them, stop it first or temporarily change the Caddy ports.
+Checks that should pass (all verified on Docker Desktop, 2026-10-10):
+1. `http://localhost/` redirects to `/_vb/setup`. Setup returns 403 without the token and 200 with it.
+2. POSTs without a matching `Origin` return 403.
+3. Setup rejects a password under 10 characters. After setup, `/_vb/setup` redirects away and plain HTTP redirects to HTTPS.
+4. `https://localhost/` while signed out returns 302 to `/_vb/login?next=…`. Assets return 401. A websocket to `/api/websockets` returns 401.
+5. A wrong password returns 401. After 5 failures you get 429 even with the right password. A spoofed `X-Forwarded-For` doesn't help.
+6. While signed in, `/` returns 200 and `/api/websockets` returns **101**.
+7. Changing the start page updates `/etc/chromium/policies/recommended/vps-browser.json` in the browser container.
+8. Restart browser: the Chromium PID changes, and the logs show the watcher and the watchdog.
+9. Password change: the current session stays valid and other cookies get 401. Sign-out gives 401.
+10. `tls-allowed` returns 200 for the configured domain and 403 otherwise. The browser container can't reach `panel:8080`.
+11. `docker compose exec panel /panel reset` re-opens setup.
+
+To look at the HTTPS-only pages in a browser without the certificate warning, run a throwaway Caddy on the `control` network that proxies `:8091` to `panel:8080` and sets `X-Forwarded-Proto https` and `Host`/`Origin` to the configured domain.
+
+**Not yet tested:** the full install on a real VPS with a real domain and Let's Encrypt, and `install.sh` end to end on a clean server.
 
 ---
 
 ## 6. Current status
 
-- [x] Compose, Caddyfile, `.env.example`, `setup.sh`, README, CI and MIT license.
-- [x] Local end-to-end test on Docker Desktop (see §5).
-- [ ] Deployed and verified on a real VPS with a real domain (§4, then the §5 checklist).
+- [x] Panel (wizard, sign-in, dashboard, auth), Caddy on-demand TLS, browser restart watcher, installer and CLI.
+- [x] Local end-to-end tests (§5) pass. The UI was checked in Chrome (desktop width).
+- [x] Proxy mode tested locally behind a stand-in for Coolify's proxy: setup, sign-in, websocket 101, spoof-proof lockout, domain change refused.
+- [ ] Real Coolify deployment with the new stack.
+- [ ] Real VPS + domain + Let's Encrypt.
+- [ ] UI checked at phone width (there's responsive CSS, but it hasn't been looked at).
 
 ---
 
 ## 7. Security rules (must keep)
 
-1. The browser container must **never** publish a port. All access goes through Caddy plus auth.
-2. Never commit `.env` or `data/`, and never share the `vps-browser-data` volume. The profile contains cookies and sessions for every site you log into.
-3. Keep `basic_auth` on the whole site. Don't add unauthenticated paths.
-4. Use a strong password. Basic auth has no rate limiting. If the domain gets attacked, add fail2ban on Caddy's access log or move to Authelia or Authentik (see §8).
-5. Anyone who gets the login has full control of a browser holding your logged-in sessions. Treat it like a password manager.
-6. Some countries regulate VPN and proxy use. Whether to use this is the deployer's decision.
+1. Only `caddy` publishes ports (and in the Coolify file, nothing does). **Never add `ports:` to `browser` or `panel`.** CI enforces this.
+2. Never give the panel the Docker socket.
+3. Keep the browser off the `control` network.
+4. Every non-`/_vb/` path must go through `forward_auth`. Don't add unauthenticated paths to the browser.
+5. Keep `tls-allowed` strict (configured domain only). Otherwise anyone can make the server request certificates for arbitrary names.
+6. Never commit `.env`, backups (`*.tgz`) or volume contents.
+7. Some countries regulate VPN and proxy use. Whether to use this is the deployer's decision.
 
 ---
 
-## 8. Possible next steps (backlog, in rough priority order)
+## 8. Possible next steps
 
-1. **Deploy to the VPS** (§4) and verify the checklist in §5 against the real domain.
-2. **Smoother video:** if YouTube is choppy, try tuning the stream settings in the web UI sidebar first. If that's not enough, switch the `browser` service to `m1k1o/neko` (WebRTC, with its own login), keeping Caddy in front. It needs a UDP mux port opened (e.g. `NEKO_WEBRTC_UDPMUX=52000`).
-3. **Better login page and brute-force protection:** replace `basic_auth` with Authelia (supports 2FA/TOTP) via Caddy `forward_auth`, or add fail2ban.
-4. **Whole-device proxy (optional):** add a password-protected HTTPS or SOCKS5 proxy, or a WireGuard container, so phone apps (like the YouTube app) can also use the VPS IP. This is separate from the remote browser.
-5. **Multiple users:** separate browser containers per user, routed by subdomain or path, each with its own auth.
-6. **Auto-updates:** Watchtower, or a cron job running `docker compose pull && docker compose up -d`.
+1. **Test on a real VPS** with a real domain, including `install.sh` on a clean Ubuntu 24.04.
+2. **2FA (TOTP)** for sign-in.
+3. **Smoother video:** an optional `neko` (WebRTC) backend.
+4. **Multiple users / browsers:** a browser container per user, routed by the panel.
+5. **Whole-device proxy:** an optional authenticated SOCKS5/HTTPS proxy or WireGuard, for phone apps.
+6. **Prebuilt images** on GHCR (needs a CI token with `workflow` and `packages` scopes) for faster installs.
+7. **Persistent lockouts and audit log**, plus fail2ban integration.

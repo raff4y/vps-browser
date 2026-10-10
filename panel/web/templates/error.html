@@ -1,0 +1,15 @@
+{{template "head" .Message}}
+<body>
+<main class="center-page">
+  <div class="narrow">
+    <div class="login-brand">{{template "brand"}}</div>
+    <div class="card">
+      <p class="pill">{{.Status}}</p>
+      <h1>{{.Message}}</h1>
+      <p class="muted">Go back to <a href="/">your browser</a> or the <a href="/_vb/">dashboard</a>.</p>
+    </div>
+    {{template "foot" .Version}}
+  </div>
+</main>
+</body>
+</html>

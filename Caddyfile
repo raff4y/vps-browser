@@ -1,12 +1,29 @@
+# vps-browser reverse proxy. You shouldn't need to edit this: the domain is
+# chosen in the web setup wizard and can be changed later from the dashboard.
 {
-	email {$ACME_EMAIL}
+	# Get an HTTPS certificate the first time someone visits a domain, but only
+	# if the control panel says it's the configured one.
+	on_demand_tls {
+		ask http://panel:8081/tls-allowed
+	}
 }
 
-{$DOMAIN} {
-	# Browser pops up a username/password prompt before anything loads.
-	basic_auth {
-		{$AUTH_USER} {$AUTH_HASH}
+# TLS_MODE=acme (default): real certificates from Let's Encrypt / ZeroSSL.
+(tls_acme) {
+	tls {
+		on_demand
 	}
+}
+
+# TLS_MODE=internal: self-signed certificates, for testing on your own PC.
+(tls_internal) {
+	tls internal {
+		on_demand
+	}
+}
+
+https:// {
+	import tls_{$TLS_MODE:acme}
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -14,6 +31,28 @@
 		-Server
 	}
 
-	# Websockets (the live browser stream) are proxied automatically.
-	reverse_proxy browser:3000
+	# Control panel: setup wizard, sign-in page, dashboard.
+	handle /_vb/* {
+		reverse_proxy panel:8080 {
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# Everything else is the browser, but only for signed-in users.
+	handle {
+		forward_auth panel:8080 {
+			uri /_vb/auth/check
+			header_up -Connection
+			header_up -Upgrade
+		}
+		reverse_proxy browser:3000
+	}
+}
+
+# Plain HTTP: first-time setup at http://SERVER-IP, otherwise the panel
+# redirects to HTTPS. (Let's Encrypt challenges are answered by Caddy first.)
+http:// {
+	reverse_proxy panel:8080 {
+		header_up X-Real-IP {client_ip}
+	}
 }

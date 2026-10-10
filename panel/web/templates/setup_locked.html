@@ -1,0 +1,20 @@
+{{template "head" "Setup"}}
+<body>
+<main class="center-page">
+  <div class="narrow wide-460">
+    <div class="login-brand">{{template "brand"}}</div>
+    <div class="card">
+      <div class="hero-icon">{{template "i-lock"}}</div>
+      <h1>Setup link required</h1>
+      {{if .Error}}
+      <div class="alert alert-warn" role="alert">{{template "i-alert"}}<p>{{.Error}}</p></div>
+      {{end}}
+      <p class="muted">To keep strangers from setting up your server before you do, setup only opens with the private link the installer printed.</p>
+      <p class="muted">Lost it? Run this on your server to show it again:</p>
+      <pre class="cmd"><code>sudo vps-browser setup-url</code></pre>
+    </div>
+    {{template "foot" .Version}}
+  </div>
+</main>
+</body>
+</html>

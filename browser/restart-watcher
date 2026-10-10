@@ -1,0 +1,23 @@
+#!/usr/bin/with-contenv bash
+# Restarts Chromium when the control panel asks: the panel writes a new value
+# to /vps-browser/restart, we stop Chromium, and the image's own watchdog
+# (RESTART_APP=true) starts it again.
+f=/vps-browser/restart
+last=$(cat "$f" 2>/dev/null)
+while sleep 2; do
+  now=$(cat "$f" 2>/dev/null)
+  [[ "$now" == "$last" ]] && continue
+  last=$now
+  echo "[vps-browser] Restart requested, stopping Chromium"
+  pids=$(pgrep -u abc -f /usr/lib/chromium/chromium)
+  [[ -z "$pids" ]] && continue
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null
+  for _ in 1 2 3 4 5; do
+    sleep 1
+    # shellcheck disable=SC2086
+    kill -0 $pids 2>/dev/null || break
+  done
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+done

@@ -1,0 +1,143 @@
+{{template "head" "Dashboard"}}
+<body>
+<header class="topbar">
+  <div class="container">
+    <a href="/_vb/" class="brand"><span class="brand-mark">{{template "i-globe"}}</span>VPS Browser</a>
+    <span class="spacer"></span>
+    <span class="pill ok domain-pill">{{template "i-lock"}} {{.Domain}}</span>
+    <form method="post" action="/_vb/logout"><button class="btn btn-ghost" type="submit">{{template "i-logout"}} Sign out</button></form>
+  </div>
+</header>
+
+<main class="container">
+  <section class="card hero">
+    <div>
+      <h1>Hi {{.Username}}, your browser is ready</h1>
+      <p>Everything you open runs on this server, so websites see its IP address, not yours.</p>
+      <div class="stat-row">
+        <span class="pill ok">{{template "i-lock"}} HTTPS active</span>
+        <span class="pill">{{template "i-server"}} Server IP <span class="mono" data-bind="ip">…</span></span>
+        <span class="pill">{{template "i-globe"}} You're connecting from <span class="mono" data-bind="yourIP">…</span></span>
+      </div>
+    </div>
+    <div class="row">
+      <a class="btn btn-primary btn-lg" href="/">Open browser {{template "i-arrow"}}</a>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- Browser -->
+    <section class="card">
+      <div class="card-head"><span class="icon-badge">{{template "i-compass"}}</span><div><h3>Browser</h3><p>Start page and what happens when Chromium starts.</p></div></div>
+      <form id="browser-form">
+        <label class="field">
+          <span>Start page</span>
+          <input class="input" name="startPage" inputmode="url" autocapitalize="none" spellcheck="false" required>
+        </label>
+        <div class="label">When the browser starts</div>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="restore" value="no"><span class="choice-body"><span class="choice-title">Open start page</span></span></label>
+          <label class="choice"><input type="radio" name="restore" value="yes"><span class="choice-body"><span class="choice-title">Continue where I left off</span></span></label>
+        </div>
+        <p class="hint">Applies the next time Chromium starts. These are defaults, so you can still change them inside Chromium's own settings.</p>
+        <div class="row end"><button class="btn btn-primary" type="submit">Save</button></div>
+      </form>
+      <hr class="divider">
+      <div class="row between">
+        <div><strong>Restart browser</strong><div class="hint">Use this if the browser is frozen or a page won't stop loading. Your tabs may close.</div></div>
+        <span class="confirm-inline" id="restart-area">
+          <button class="btn btn-secondary" id="restart-btn" type="button">{{template "i-refresh"}} Restart</button>
+        </span>
+      </div>
+    </section>
+
+    <!-- Account -->
+    <section class="card">
+      <div class="card-head"><span class="icon-badge">{{template "i-user"}}</span><div><h3>Account</h3><p>Change your username or password. Other devices will be signed out.</p></div></div>
+      <form id="account-form" autocomplete="off">
+        <label class="field">
+          <span>Username</span>
+          <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+        </label>
+        <label class="field">
+          <span class="row between"><span>New password <span class="muted">(optional)</span></span><button type="button" class="link-btn small" id="gen-pass">Generate</button></span>
+          <span class="input-wrap">
+            <input class="input" type="password" name="newPassword" id="password" autocomplete="new-password" placeholder="Leave blank to keep the current one">
+            <button type="button" class="icon-btn" data-toggle-password aria-label="Show password">{{template "i-eye"}}</button>
+          </span>
+          <span class="meter hidden" id="meter" data-score="0"><i></i></span>
+          <span class="hint hidden" id="meter-text"></span>
+        </label>
+        <label class="field hidden" id="confirm-field">
+          <span>Confirm new password</span>
+          <input class="input" type="password" name="confirmPassword" id="password2" autocomplete="new-password">
+        </label>
+        <label class="field">
+          <span>Current password</span>
+          <input class="input" type="password" name="currentPassword" autocomplete="current-password" required>
+        </label>
+        <div class="row end"><button class="btn btn-primary" type="submit">Save account</button></div>
+      </form>
+    </section>
+
+    <!-- Domain -->
+    <section class="card">
+      <div class="card-head"><span class="icon-badge">{{template "i-globe"}}</span><div><h3>Domain</h3><p>The address your browser lives at.</p></div></div>
+      <table class="kv"><tr><th>Current address</th><td class="mono">https://{{.Domain}}</td></tr></table>
+      <hr class="divider">
+      <form id="domain-form">
+        <label class="field">
+          <span>Move to a new domain</span>
+          <span class="input-group">
+            <input class="input" name="domain" placeholder="new.example.com" autocapitalize="none" spellcheck="false" inputmode="url" required>
+            <button class="btn btn-secondary" type="button" id="dns-check-btn">Check DNS</button>
+          </span>
+        </label>
+        <p class="hint">First point the new domain's A record to <code data-bind="ip">…</code>. After switching you'll sign in again at the new address. The old address will stop working.</p>
+        <div id="dns-result"></div>
+        <div class="row end"><button class="btn btn-primary" type="submit" id="domain-save" disabled>Switch domain</button></div>
+      </form>
+    </section>
+
+    <!-- Security -->
+    <section class="card">
+      <div class="card-head"><span class="icon-badge">{{template "i-shield"}}</span><div><h3>Security</h3><p>Recent sign-ins to your browser.</p></div></div>
+      <table class="sessions">
+        <thead><tr><th>When</th><th>IP address</th><th>Device</th></tr></thead>
+        <tbody id="logins"><tr><td colspan="3" class="muted">Loading…</td></tr></tbody>
+      </table>
+      <hr class="divider">
+      <div class="row between">
+        <div><strong>Sign out everywhere else</strong><div class="hint">Ends every session except this one.</div></div>
+        <button class="btn btn-danger" id="revoke-btn" type="button">{{template "i-logout"}} Sign out others</button>
+      </div>
+      <p class="hint">After 5 wrong passwords, an IP address is locked out for a minute, and the lock doubles with each further miss.</p>
+    </section>
+
+    <!-- Server -->
+    <section class="card span-2">
+      <div class="card-head"><span class="icon-badge">{{template "i-server"}}</span><div><h3>Server</h3><p>Manage it over SSH with the <code>vps-browser</code> command.</p></div></div>
+      <div class="grid">
+        <table class="kv">
+          <tr><th>Public IP</th><td class="mono" data-bind="ip">…</td></tr>
+          <tr><th>Memory</th><td data-bind="mem">…</td></tr>
+          <tr><th>CPU cores</th><td data-bind="cpu">…</td></tr>
+          <tr><th>Version</th><td>v{{.Version}}</td></tr>
+        </table>
+        <table class="kv">
+          <tr><th><code>vps-browser update</code></th><td>Update to the latest version</td></tr>
+          <tr><th><code>vps-browser status</code></th><td>Show what's running</td></tr>
+          <tr><th><code>vps-browser logs</code></th><td>Watch the logs</td></tr>
+          <tr><th><code>vps-browser reset</code></th><td>Forgot password: re-run setup</td></tr>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  {{template "foot" .Version}}
+</main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="/_vb/static/common.js"></script>
+<script src="/_vb/static/dashboard.js"></script>
+</body>
+</html>

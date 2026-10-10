@@ -1,7 +1,7 @@
-# Compose file for deploying with Coolify (set it as the "Docker Compose
-# Location" in Coolify). Coolify's proxy handles the domain and HTTPS, so
-# nothing here publishes host ports. For a plain VPS use docker-compose.yml
-# and setup.sh instead.
+# Compose file for deploying with Coolify: set it as the "Docker Compose
+# Location". Coolify's proxy handles the domain and HTTPS, so nothing here
+# publishes host ports. Give your domain to the `caddy` service only.
+# For a plain VPS, use install.sh (docker-compose.yml) instead.
 
 x-logging: &logging
   driver: json-file
@@ -10,12 +10,46 @@ x-logging: &logging
     max-file: "3"
 
 services:
-  # Full Chromium desktop browser. Do NOT give this service a domain in
-  # Coolify - only Caddy may route to it, otherwise the login is skipped.
-  browser:
-    image: lscr.io/linuxserver/chromium:latest
+  # Sign-in in front of the browser. Give THIS service your domain in Coolify
+  # (it listens on port 80). The Caddyfile is baked into the image because
+  # Coolify copies only the compose file to the server, so a bind mount would
+  # be an empty directory.
+  caddy:
+    build: ./coolify
     restart: unless-stopped
     logging: *logging
+    depends_on:
+      - panel
+      - browser
+    expose:
+      - "80"
+    networks:
+      - edge
+      - control
+
+  # Setup wizard, sign-in page, dashboard. The setup link is printed in this
+  # service's logs on first start.
+  panel:
+    build: ./panel
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      - TLS_MODE=proxy
+    volumes:
+      - panel-data:/data
+      - browser-policies:/policies
+      - browser-control:/control
+    networks:
+      - control
+
+  # Full Chromium desktop. Do NOT give this service a domain in Coolify:
+  # only Caddy may route to it, otherwise the sign-in is skipped.
+  browser:
+    build: ./browser
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - panel                  # panel creates the shared volumes with the right owner
     shm_size: "2gb"
     security_opt:
       - seccomp:unconfined
@@ -24,23 +58,20 @@ services:
       - PGID=1000
       - TZ=${TZ:-UTC}
       - TITLE=VPS Browser
-      - CHROME_CLI=${START_PAGE:-https://www.google.com}
+      - RESTART_APP=true
     volumes:
       - browser-data:/config
+      - browser-policies:/etc/chromium/policies/recommended:ro
+      - browser-control:/vps-browser:ro
+    networks:
+      - edge
 
-  # Login screen in front of the browser. Give THIS service your domain in
-  # Coolify (it listens on port 80).
-  caddy:
-    build: ./coolify
-    restart: unless-stopped
-    logging: *logging
-    depends_on:
-      - browser
-    expose:
-      - "80"
-    environment:
-      - AUTH_USER=${AUTH_USER}
-      - AUTH_HASH=${AUTH_HASH}
+networks:
+  edge:
+  control:
 
 volumes:
   browser-data:
+  panel-data:
+  browser-policies:
+  browser-control:

@@ -1,0 +1,204 @@
+{{template "head" "Setup"}}
+<body>
+<main class="wizard">
+  <header class="wizard-head">
+    {{template "brand"}}
+    <span class="pill">Setup</span>
+  </header>
+
+  <ol class="stepper" id="stepper" aria-label="Setup progress">
+    <li data-step="1"><span class="bar"></span><span class="lbl">1 · Welcome</span></li>
+    <li data-step="2"><span class="bar"></span><span class="lbl">2 · Domain</span></li>
+    <li data-step="3"><span class="bar"></span><span class="lbl">3 · Account</span></li>
+    <li data-step="4"><span class="bar"></span><span class="lbl">4 · Browser</span></li>
+    <li data-step="5"><span class="bar"></span><span class="lbl">5 · Launch</span></li>
+  </ol>
+
+  <!-- 1. Welcome -->
+  <section class="card step" data-step="1">
+    <div class="hero-icon">{{template "i-sparkle"}}</div>
+    <h1>Let's set up your private browser</h1>
+    <p class="step-lead">In about two minutes you'll have a real Chromium browser running on this server. You can open it from any phone or computer at your own address, over HTTPS, behind your own sign-in. Every site you visit sees this server's IP address, not yours.</p>
+
+    <h3>Server check</h3>
+    <ul class="checklist" id="syscheck">
+      <li><span class="status-dot wait"></span><span class="ck-label">Public IP address</span><span class="ck-value" data-k="ip">checking…</span></li>
+      <li><span class="status-dot wait"></span><span class="ck-label">Memory<small>2 GB minimum, 4 GB recommended</small></span><span class="ck-value" data-k="mem">checking…</span></li>
+      <li><span class="status-dot wait"></span><span class="ck-label">CPU cores</span><span class="ck-value" data-k="cpu">checking…</span></li>
+      <li><span class="status-dot ok">{{template "i-check"}}</span><span class="ck-label">Web ports 80 &amp; 443<small>You reached this page, so the server is online</small></span><span class="ck-value">open</span></li>
+    </ul>
+
+    <div class="step-actions">
+      <span class="spacer"></span>
+      <button class="btn btn-primary btn-lg" data-next>Get started {{template "i-arrow"}}</button>
+    </div>
+  </section>
+
+  <!-- 2. Domain -->
+  <section class="card step hidden" data-step="2">
+    <div class="step-title"><span class="icon-badge">{{template "i-globe"}}</span><h2>Choose your address</h2></div>
+    <p class="step-lead">Your browser will live at a domain or subdomain you control, for example <code>browse.example.com</code>. HTTPS is set up for it automatically.</p>
+
+    <label class="field">
+      <span>Domain</span>
+      <span class="input-group">
+        <input class="input" id="domain" placeholder="browse.example.com" autocomplete="off" autocapitalize="none" spellcheck="false" inputmode="url">
+        <button class="btn btn-secondary" id="dns-check-btn" type="button">Check DNS</button>
+      </span>
+    </label>
+
+    <div id="dns-result"></div>
+
+    <div class="box">
+      <div class="label">At your domain's DNS provider, add this record:</div>
+      <table class="dns-table">
+        <thead><tr><th>Type</th><th>Name / Host</th><th>Value / Points to</th></tr></thead>
+        <tbody><tr>
+          <td>A</td>
+          <td id="dns-name">browse</td>
+          <td><span class="copyable"><span class="server-ip">…</span><button class="icon-btn" type="button" data-copy-ip aria-label="Copy IP address"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></span></td>
+        </tr></tbody>
+      </table>
+      <p class="hint">Changes usually show up within a few minutes, but can take up to an hour.</p>
+    </div>
+
+    <details class="box">
+      <summary>Don't have a domain? Get a free one</summary>
+      <div>
+        <ol>
+          <li>Go to <a href="https://www.duckdns.org" target="_blank" rel="noopener">duckdns.org</a> and sign in (Google, GitHub, etc.).</li>
+          <li>Type a name (e.g. <code>mybrowser</code>) and click <strong>add domain</strong>.</li>
+          <li>In the <strong>current ip</strong> box, enter <code class="server-ip">…</code> and click <strong>update ip</strong>.</li>
+          <li>Enter <code>mybrowser.duckdns.org</code> above.</li>
+        </ol>
+      </div>
+    </details>
+    <details class="box">
+      <summary>Using Cloudflare?</summary>
+      <div>Set the record's proxy status to <strong>DNS only</strong> (grey cloud). The orange-cloud proxy can't carry the live browser stream and blocks the HTTPS certificate.</div>
+    </details>
+
+    <div class="step-actions">
+      <button class="btn btn-ghost" data-back>{{template "i-back"}} Back</button>
+      <span class="spacer"></span>
+      <button class="link-btn hidden small" id="dns-skip" type="button">Continue anyway</button>
+      <button class="btn btn-primary" id="domain-next" disabled>Continue {{template "i-arrow"}}</button>
+    </div>
+  </section>
+
+  <!-- 3. Account -->
+  <section class="card step hidden" data-step="3">
+    <div class="step-title"><span class="icon-badge">{{template "i-user"}}</span><h2>Create your sign-in</h2></div>
+    <p class="step-lead">Anyone with this username and password gets full control of the browser and every site you're logged into, so make the password strong.</p>
+
+    <label class="field">
+      <span>Username</span>
+      <input class="input" id="username" value="admin" autocomplete="username" autocapitalize="none" spellcheck="false">
+    </label>
+    <label class="field">
+      <span class="row between"><span>Password</span><button type="button" class="link-btn small" id="gen-pass">Generate a strong one</button></span>
+      <span class="input-wrap">
+        <input class="input" type="password" id="password" autocomplete="new-password">
+        <button type="button" class="icon-btn" data-toggle-password aria-label="Show password">{{template "i-eye"}}</button>
+      </span>
+      <span class="meter" id="meter" data-score="0"><i></i></span>
+      <span class="hint" id="meter-text">At least 10 characters.</span>
+    </label>
+    <label class="field">
+      <span>Confirm password</span>
+      <input class="input" type="password" id="password2" autocomplete="new-password">
+    </label>
+    <div id="account-error"></div>
+    <div class="alert alert-info">{{template "i-alert"}}<p class="alert-body">Save this password in your password manager. If you forget it, run <code>sudo vps-browser reset</code> on the server.</p></div>
+
+    <div class="step-actions">
+      <button class="btn btn-ghost" data-back>{{template "i-back"}} Back</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="account-next">Continue {{template "i-arrow"}}</button>
+    </div>
+  </section>
+
+  <!-- 4. Browser -->
+  <section class="card step hidden" data-step="4">
+    <div class="step-title"><span class="icon-badge">{{template "i-compass"}}</span><h2>Browser preferences</h2></div>
+    <p class="step-lead">You can change these any time from the dashboard.</p>
+
+    <div class="label">Start page</div>
+    <div class="choices" id="start-choices">
+      <label class="choice"><input type="radio" name="start" value="https://www.google.com" checked><span class="choice-body"><span class="choice-title">Google</span><span class="choice-sub">google.com</span></span></label>
+      <label class="choice"><input type="radio" name="start" value="https://duckduckgo.com"><span class="choice-body"><span class="choice-title">DuckDuckGo</span><span class="choice-sub">duckduckgo.com</span></span></label>
+      <label class="choice"><input type="radio" name="start" value="https://www.youtube.com"><span class="choice-body"><span class="choice-title">YouTube</span><span class="choice-sub">youtube.com</span></span></label>
+      <label class="choice"><input type="radio" name="start" value="custom"><span class="choice-body"><span class="choice-title">Custom</span><span class="choice-sub">Any address</span></span></label>
+    </div>
+    <label class="field hidden" id="custom-start-field">
+      <span>Custom start page</span>
+      <input class="input" id="custom-start" placeholder="https://example.com" inputmode="url" autocapitalize="none" spellcheck="false">
+    </label>
+
+    <div class="label">When the browser starts</div>
+    <div class="choices">
+      <label class="choice"><input type="radio" name="restore" value="no" checked><span class="choice-body"><span class="choice-title">Open the start page</span><span class="choice-sub">A fresh start every time</span></span></label>
+      <label class="choice"><input type="radio" name="restore" value="yes"><span class="choice-body"><span class="choice-title">Continue where I left off</span><span class="choice-sub">Reopen your last tabs</span></span></label>
+    </div>
+    <div id="browser-error"></div>
+
+    <div class="step-actions">
+      <button class="btn btn-ghost" data-back>{{template "i-back"}} Back</button>
+      <span class="spacer"></span>
+      <button class="btn btn-primary" id="browser-next">Review {{template "i-arrow"}}</button>
+    </div>
+  </section>
+
+  <!-- 5. Review & launch -->
+  <section class="card step hidden" data-step="5">
+    <div id="review">
+      <div class="step-title"><span class="icon-badge">{{template "i-shield"}}</span><h2>Review and launch</h2></div>
+      <p class="step-lead">Check everything looks right.</p>
+      <table class="kv">
+        <tr><th>Address</th><td id="r-domain" class="mono"></td></tr>
+        <tr><th>Username</th><td id="r-user"></td></tr>
+        <tr><th>Password</th><td id="r-pass"></td></tr>
+        <tr><th>Start page</th><td id="r-start"></td></tr>
+        <tr><th>On startup</th><td id="r-restore"></td></tr>
+      </table>
+      <div class="alert alert-info review-note">{{template "i-alert"}}<p class="alert-body">When you finish, this setup page closes for good. The server then gets a free HTTPS certificate from Let's Encrypt, which usually takes under a minute.</p></div>
+      <div id="finish-error"></div>
+      <div class="step-actions">
+        <button class="btn btn-ghost" data-back>{{template "i-back"}} Back</button>
+        <span class="spacer"></span>
+        <button class="btn btn-primary btn-lg" id="finish">Finish setup {{template "i-arrow"}}</button>
+      </div>
+    </div>
+
+    <div id="launch" class="hidden">
+      <div class="hero-icon" id="launch-icon">{{template "i-shield"}}</div>
+      <h1 id="launch-title">Almost there…</h1>
+      <p class="step-lead" id="launch-lead">Getting your secure connection ready.</p>
+      <ul class="checklist">
+        <li><span class="status-dot ok">{{template "i-check"}}</span><span class="ck-label">Settings saved</span></li>
+        <li><span class="status-dot ok">{{template "i-check"}}</span><span class="ck-label">Browser configured</span></li>
+        <li id="cert-row"><span class="status-dot wait"></span><span class="ck-label">HTTPS certificate<small id="cert-msg">Requesting from Let's Encrypt…</small></span></li>
+      </ul>
+      <div id="cert-help" class="alert alert-warn hidden">{{template "i-alert"}}<div class="alert-body">
+        <p><strong>This is taking longer than usual.</strong> Check that:</p>
+        <ul>
+          <li>The A record for your domain points to <code class="server-ip">…</code></li>
+          <li>Ports 80 and 443 are open in your cloud provider's firewall</li>
+          <li>Cloudflare (if used) is set to <strong>DNS only</strong></li>
+        </ul>
+        <p>It keeps retrying on its own. You can also try opening the address directly.</p>
+      </div></div>
+      <div class="step-actions">
+        <span class="muted small" id="launch-note">Signing in for the first time? Use the username and password you just created.</span>
+        <span class="spacer"></span>
+        <a class="btn btn-primary btn-lg" id="open-link" href="#">Open my browser {{template "i-arrow"}}</a>
+      </div>
+    </div>
+  </section>
+
+  {{template "foot" .Version}}
+</main>
+<script src="/_vb/static/common.js"></script>
+<script src="/_vb/static/setup.js"></script>
+</body>
+</html>

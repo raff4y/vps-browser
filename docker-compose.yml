@@ -1,3 +1,6 @@
+# vps-browser: a private Chromium browser on your server, behind HTTPS and a
+# sign-in page. Install with install.sh, then finish setup in your browser.
+
 x-logging: &logging
   driver: json-file
   options:
@@ -5,13 +8,53 @@ x-logging: &logging
     max-file: "3"
 
 services:
-  # Full Chromium desktop browser, streamed to your own browser as a web page.
-  # It is NOT exposed to the internet directly - only Caddy can reach it.
-  browser:
-    image: lscr.io/linuxserver/chromium:latest
-    container_name: vps-browser
+  # HTTPS + routing. The only service that's reachable from the internet.
+  caddy:
+    image: caddy:2
     restart: unless-stopped
     logging: *logging
+    depends_on:
+      - panel
+      - browser
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      - TLS_MODE=${TLS_MODE:-acme}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # HTTPS certificates
+      - caddy-config:/config
+    networks:
+      - edge
+      - control
+
+  # Setup wizard, sign-in page, dashboard, and the auth check for the browser.
+  panel:
+    build: ./panel
+    image: vps-browser-panel:local
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      - TLS_MODE=${TLS_MODE:-acme}
+      - PUBLIC_IP=${PUBLIC_IP:-}
+    volumes:
+      - panel-data:/data                 # settings, password hash
+      - browser-policies:/policies       # start page -> Chromium
+      - browser-control:/control         # restart requests -> browser
+    networks:
+      - control
+
+  # Full Chromium desktop, streamed to your own browser as a web page.
+  # Never give this service `ports:` - that would skip the sign-in.
+  browser:
+    build: ./browser
+    image: vps-browser-chromium:local
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - panel                  # panel creates the shared volumes with the right owner
     shm_size: "2gb"            # Chromium crashes on video-heavy sites without this
     security_opt:
       - seccomp:unconfined     # required by Chromium's sandbox inside Docker
@@ -20,41 +63,30 @@ services:
       - PGID=1000
       - TZ=${TZ:-UTC}
       - TITLE=VPS Browser
-      - CHROME_CLI=${START_PAGE:-https://www.google.com}
+      - RESTART_APP=true       # bring Chromium back if it crashes or is closed
     volumes:
-      # Bookmarks, history and logins persist here. A named volume (not a host
-      # folder) because the desktop needs Unix sockets inside /config, which
-      # Windows/macOS bind mounts can't hold.
+      # Bookmarks, history and logins. A named volume (not a host folder)
+      # because the desktop needs Unix sockets in /config, which Windows/macOS
+      # bind mounts can't hold.
       - browser-data:/config
+      - browser-policies:/etc/chromium/policies/recommended:ro
+      - browser-control:/vps-browser:ro
     networks:
-      - internal
+      - edge
 
-  # HTTPS + login screen in front of the browser.
-  caddy:
-    image: caddy:2
-    container_name: vps-browser-caddy
-    restart: unless-stopped
-    logging: *logging
-    depends_on:
-      - browser
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      - DOMAIN=${DOMAIN}
-      - ACME_EMAIL=${ACME_EMAIL}
-      - AUTH_USER=${AUTH_USER}
-      - AUTH_HASH=${AUTH_HASH}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/caddy:/data      # TLS certificates
-    networks:
-      - internal
-
+# The browser can't reach the panel: it's only on "edge", the panel only on
+# "control", and Caddy sits between them.
 networks:
-  internal:
+  edge:
+  control:
 
 volumes:
   browser-data:
     name: vps-browser-data
+  panel-data:
+    name: vps-browser-panel
+  browser-policies:
+  browser-control:
+  caddy-data:
+    name: vps-browser-certs
+  caddy-config:

@@ -1,23 +1,37 @@
-# Caddyfile for Coolify deployments. Coolify's own proxy owns ports 80/443 and
-# handles HTTPS, so Caddy here only listens on plain :80 inside Docker and does
-# the login.
+# Caddyfile for Coolify (and other setups where a reverse proxy in front
+# already handles the domain and HTTPS). Caddy here only listens on plain :80
+# inside Docker and puts the sign-in in front of the browser.
 {
 	auto_https off
 	admin off
+	servers {
+		# Believe X-Forwarded-For/-Proto from Coolify's proxy on the Docker
+		# network, reading the client IP right-to-left so it can't be spoofed.
+		trusted_proxies static private_ranges
+		trusted_proxies_strict
+	}
 }
 
 :80 {
-	# Browser pops up a username/password prompt before anything loads.
-	basic_auth {
-		{$AUTH_USER} {$AUTH_HASH}
-	}
-
 	header {
-		Strict-Transport-Security "max-age=31536000"
 		X-Robots-Tag "noindex, nofollow"
 		-Server
 	}
 
-	# Websockets (the live browser stream) are proxied automatically.
-	reverse_proxy browser:3000
+	# Control panel: setup wizard, sign-in page, dashboard.
+	handle /_vb/* {
+		reverse_proxy panel:8080 {
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# Everything else is the browser, but only for signed-in users.
+	handle {
+		forward_auth panel:8080 {
+			uri /_vb/auth/check
+			header_up -Connection
+			header_up -Upgrade
+		}
+		reverse_proxy browser:3000
+	}
 }

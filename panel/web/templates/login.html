@@ -1,0 +1,38 @@
+{{template "head" "Sign in"}}
+<body>
+<main class="center-page">
+  <div class="narrow">
+    <div class="login-brand">{{template "brand"}}</div>
+    <div class="card">
+      <h1>Sign in</h1>
+      <p class="muted">to your private browser at <strong>{{.Domain}}</strong></p>
+
+      {{if .Error}}
+      <div class="alert alert-err" role="alert">{{template "i-alert"}}<p>{{.Error}}</p></div>
+      {{end}}
+
+      <form method="post" action="/_vb/login" id="login-form">
+        <input type="hidden" name="next" value="{{.Next}}">
+        <label class="field">
+          <span>Username</span>
+          <input class="input" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required value="{{.Username}}" {{if not .Username}}autofocus{{end}}>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <span class="input-wrap">
+            <input class="input" type="password" name="password" autocomplete="current-password" required {{if .Username}}autofocus{{end}}>
+            <button type="button" class="icon-btn" data-toggle-password aria-label="Show password">{{template "i-eye"}}</button>
+          </span>
+        </label>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">Sign in {{template "i-arrow"}}</button>
+      </form>
+      <p class="secure-note">{{template "i-lock"}} Encrypted connection · sessions last 30 days</p>
+    </div>
+    <p class="hint center-hint">Forgot your password? On the server, run <code>sudo vps-browser reset</code>.</p>
+    {{template "foot" .Version}}
+  </div>
+</main>
+<script src="/_vb/static/common.js"></script>
+<script src="/_vb/static/login.js"></script>
+</body>
+</html>
