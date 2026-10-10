@@ -35,7 +35,6 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /_vb/api/settings/account", a.requireSession(a.saveAccount))
 	mux.HandleFunc("POST /_vb/api/settings/browser", a.requireSession(a.saveBrowser))
 	mux.HandleFunc("POST /_vb/api/browser/restart", a.requireSession(a.restartBrowser))
-	mux.HandleFunc("POST /_vb/api/browser/close", a.requireSession(a.closeBrowserAndSignOut))
 	mux.HandleFunc("POST /_vb/browser/start", a.requireSession(a.startBrowser))
 	mux.HandleFunc("POST /_vb/api/sessions/revoke", a.requireSession(a.revokeSessions))
 
@@ -207,9 +206,21 @@ func (a *App) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, data.Next, http.StatusSeeOther)
 }
 
+// logout also shuts Chromium down, so it stops using the server's memory
+// until someone signs in again (or presses Start on the dashboard). Only for a
+// real session, so a stranger can't close the browser by posting here.
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
+	next := "/_vb/login"
+	if validSession(r, a.store.Get()) {
+		if err := a.closeBrowser(); err != nil {
+			log.Printf("could not close the browser: %v", err)
+		} else {
+			log.Printf("signed out, browser closed")
+			next += "?closed=1"
+		}
+	}
 	clearCookie(w, r, sessionCookie, "/")
-	http.Redirect(w, r, "/_vb/login", http.StatusSeeOther)
+	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 // ---- First-run setup ----
@@ -471,22 +482,9 @@ func (a *App) restartBrowser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-// closeBrowserAndSignOut shuts Chromium down to free the server's memory and
-// signs this device out. It starts again when someone signs in, or presses
-// Start on the dashboard.
-func (a *App) closeBrowserAndSignOut(w http.ResponseWriter, r *http.Request) {
-	if err := a.closeBrowser(); err != nil {
-		jsonError(w, http.StatusInternalServerError, "Could not close the browser: "+err.Error())
-		return
-	}
-	log.Printf("browser closed from the dashboard")
-	clearCookie(w, r, sessionCookie, "/")
-	writeJSON(w, map[string]any{"ok": true, "url": "/_vb/login?closed=1"})
-}
-
 // startBrowser is the dashboard's "Start browser" button (a plain form).
 func (a *App) startBrowser(w http.ResponseWriter, r *http.Request) {
-	a.startIfClosed("started from the dashboard")
+	a.startIfClosed("Start button on the dashboard")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -498,7 +496,7 @@ func (a *App) startIfClosed(why string) {
 		log.Printf("could not start the browser: %v", err)
 		return
 	}
-	log.Printf("browser %s", why)
+	log.Printf("browser started (%s)", why)
 }
 
 func (a *App) revokeSessions(w http.ResponseWriter, r *http.Request) {

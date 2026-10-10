@@ -5,7 +5,7 @@
     <a href="/_vb/" class="brand"><span class="brand-mark">{{template "i-globe"}}</span>VPS Browser</a>
     <span class="spacer"></span>
     <span class="pill ok domain-pill">{{template "i-lock"}} {{.Domain}}</span>
-    <form method="post" action="/_vb/logout"><button class="btn btn-ghost" type="submit">{{template "i-logout"}} Sign out</button></form>
+    <form method="post" action="/_vb/logout"><button class="btn btn-ghost" type="submit" title="Sign out and close the browser, so it stops using the server's memory">{{template "i-logout"}} Sign out</button></form>
   </div>
 </header>
 
@@ -30,9 +30,6 @@
       <form method="post" action="/_vb/browser/start"><button class="btn btn-primary btn-lg" type="submit">{{template "i-power"}} Start browser</button></form>
       {{else}}
       <a class="btn btn-primary btn-lg" href="/">Open browser {{template "i-arrow"}}</a>
-      <span class="confirm-inline" id="close-area">
-        <button class="btn btn-secondary btn-lg" id="close-btn" type="button" title="Shut Chromium down to free the server's memory, and sign out. It starts again the next time you sign in.">{{template "i-power"}} Close browser</button>
-      </span>
       {{end}}
     </div>
   </section>
@@ -61,7 +58,7 @@
           <button class="btn btn-secondary" id="restart-btn" type="button">{{template "i-refresh"}} Restart</button>
         </span>
       </div>
-      <p class="hint">Done browsing? <strong>Close browser</strong> (at the top) shuts Chromium down so it stops using the server's memory, and signs you out. It starts again the next time you sign in.</p>
+      <p class="hint">Done browsing? <strong>Sign out</strong> (top right) also shuts Chromium down, so it stops using the server's memory. It starts again the next time you sign in.</p>
     </section>
 
     <!-- Account -->
