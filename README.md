@@ -14,7 +14,7 @@ your phone / PC ──HTTPS + sign-in──▶ your VPS ──▶ Chromium ─�
 - **Web setup wizard.** It checks your server, tests your domain's DNS live, and walks you through creating your sign-in and choosing a start page. You never edit a config file.
 - **Your own domain with automatic HTTPS** (Let's Encrypt). No domain? The wizard shows how to get a free one from DuckDNS.
 - **Proper sign-in page** with brute-force lockout, 30-day sessions and "sign out everywhere".
-- **Dashboard** to change the domain, username, password and start page, restart a frozen browser, and see recent sign-ins.
+- **Dashboard** to change the domain, username, password and start page, restart a frozen browser, close it when you're done so it stops using the server's memory, and see recent sign-ins.
 - **Real Chromium** with sound, clipboard, and a persistent profile: bookmarks and logged-in sites survive restarts.
 - **Secure by design.** The browser is never exposed directly, the panel has no Docker access, and the browser can't reach the panel.
 - **Free and open source** (MIT).
@@ -81,7 +81,7 @@ The installer adds a `vps-browser` command:
 | `vps-browser backup` / `restore <file>` | Save or restore the browser profile and settings |
 | `vps-browser uninstall` | Remove everything, including all data |
 
-Most day-to-day changes (domain, password, start page, restarting the browser) are done from the dashboard.
+Most day-to-day changes (domain, password, start page, restarting or closing the browser) are done from the dashboard. **Close browser** shuts Chromium down and signs you out. It starts again the next time you sign in and open it, so an idle server isn't holding Chromium in memory.
 
 ## Troubleshooting
 

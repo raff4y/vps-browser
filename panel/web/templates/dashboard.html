@@ -22,6 +22,9 @@
     </div>
     <div class="row">
       <a class="btn btn-primary btn-lg" href="/">Open browser {{template "i-arrow"}}</a>
+      <span class="confirm-inline" id="close-area">
+        <button class="btn btn-secondary btn-lg" id="close-btn" type="button" title="Shut Chromium down to free the server's memory, and sign out. It starts again the next time you open it.">{{template "i-power"}} Close browser</button>
+      </span>
     </div>
   </section>
 
@@ -49,6 +52,7 @@
           <button class="btn btn-secondary" id="restart-btn" type="button">{{template "i-refresh"}} Restart</button>
         </span>
       </div>
+      <p class="hint">Done browsing? <strong>Close browser</strong> (at the top) shuts Chromium down so it stops using the server's memory, and signs you out. It starts again the next time you open it.</p>
     </section>
 
     <!-- Account -->

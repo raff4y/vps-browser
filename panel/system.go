@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -213,6 +215,27 @@ func (a *App) writePolicy(cfg Config) error {
 func (a *App) requestBrowserRestart() error {
 	return os.WriteFile(filepath.Join(a.controlDir, "restart"),
 		[]byte(strconv.FormatInt(time.Now().UnixNano(), 10)), 0o644)
+}
+
+// While this file exists the browser is "closed": the watcher inside the
+// browser container stops Chromium, and chromium-gate keeps it from starting
+// again, so it uses no memory until someone opens the browser.
+func (a *App) stoppedFlag() string { return filepath.Join(a.controlDir, "stopped") }
+
+func (a *App) closeBrowser() error {
+	return os.WriteFile(a.stoppedFlag(), []byte(time.Now().UTC().Format(time.RFC3339)), 0o644)
+}
+
+func (a *App) openBrowser() error {
+	if err := os.Remove(a.stoppedFlag()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (a *App) browserClosed() bool {
+	_, err := os.Stat(a.stoppedFlag())
+	return err == nil
 }
 
 type SystemInfo struct {

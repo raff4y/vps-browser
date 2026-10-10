@@ -61,6 +61,7 @@ The client only receives a video-like stream and sends input back. Nothing is in
 - **Open setup window:** if the panel starts unconfigured, setup also works *without* the token for `openSetupWindow` (1 hour), so opening the domain or IP lands on the wizard (`App.canSetup`). The owner chose this trade-off: new certificates show up in public CT logs and bots scan them, so the window is kept short. The window is counted from panel start, so a restart of an unconfigured install re-opens it. `reset` on a running, already-configured panel never opens it, only the token works.
 - **Start page:** written as Chromium **recommended** policies (`HomepageLocation`, `RestoreOnStartup`, `RestoreOnStartupURLs`) into the shared `browser-policies` volume. They're defaults, so the user can still override them inside Chromium.
 - **Restart browser:** the panel writes a timestamp to `browser-control/restart`. `browser/restart-watcher` (an s6 custom service in the browser image) notices it and kills Chromium, and the image's own watchdog (`RESTART_APP=true`) relaunches it. **The panel deliberately has no Docker socket.**
+- **Close browser** (to free the server's RAM): `POST /_vb/api/browser/close` creates `browser-control/stopped` and clears this device's session cookie (it goes to `/_vb/login?closed=1`). The watcher sees the file and kills Chromium. `browser/chromium-gate` replaces the image's launcher `/usr/bin/wrapped-chromium` (the original is moved to `wrapped-chromium-real`) and holds every watchdog relaunch in a `sleep 1` loop while the file exists. `authCheck` removes the file on the next signed-in **page load** of the browser (not on assets or websockets, so a forgotten tab reconnecting doesn't wake it up), and so does Restart. The Selkies desktop and stream keep running; only Chromium stops, and that's where nearly all of the memory goes. The flag survives container restarts, so a closed browser stays closed after a reboot. If upstream renames `wrapped-chromium`, the browser image build fails on purpose.
 - **Public IP:** the `PUBLIC_IP` env var, or ipify / icanhazip / ifconfig.me, cached for 10 minutes.
 - **DNS check:** resolves A/AAAA and compares them with the public IP. It warns about Cloudflare's proxy and about stray AAAA records.
 
@@ -97,7 +98,7 @@ The client only receives a video-like stream and sends input back. Nothing is in
 | `coolify/` | `Dockerfile` + plain-HTTP `Caddyfile` (routing + `forward_auth`, `trusted_proxies private_ranges` + `trusted_proxies_strict`) baked into a Caddy image. Baked in because Coolify copies only the compose file to the server, so a `./Caddyfile` bind mount becomes an empty directory and Caddy fails to start. |
 | `Caddyfile` | Routing and on-demand TLS. `TLS_MODE` picks the `tls_acme` or `tls_internal` snippet. |
 | `panel/` | Control panel source (Go) and its `Dockerfile`. `web/templates`, `web/static`. |
-| `browser/` | The browser image: linuxserver/chromium plus `restart-watcher`. |
+| `browser/` | The browser image: linuxserver/chromium plus `restart-watcher` and `chromium-gate` (Restart / Close buttons). |
 | `.env.example` | Optional settings: `TZ`, `PUBLIC_IP`, `TLS_MODE`, `HTTP_PORT`/`HTTPS_PORT`. Not needed for a normal install. |
 | `docs/` | README screenshots (taken with the example IP 203.0.113.10 and domain browse.example.com). |
 | `.github/workflows/ci.yml` | CI: shellcheck, go vet/build, compose and Caddyfile validation, a no-ports guard on the browser service. |
@@ -142,6 +143,7 @@ Checks that should pass (all verified on Docker Desktop, 2026-10-10):
 6. While signed in, `/` returns 200 and `/api/websockets` returns **101**.
 7. Changing the start page updates `/etc/chromium/policies/recommended/vps-browser.json` in the browser container.
 8. Restart browser: the Chromium PID changes, and the logs show the watcher and the watchdog.
+8b. Close browser: you land on the sign-in page with the "browser is closed" notice, `pgrep -f /usr/lib/chromium/chromium` in the browser container finds nothing (and still nothing 30 s later), and memory use drops. After you sign in, Chromium is back within a few seconds. *(Not yet run.)*
 9. Password change: the current session stays valid and other cookies get 401. Sign-out gives 401.
 10. `tls-allowed` returns 200 for the configured domain and 403 otherwise. The browser container can't reach `panel:8080`.
 11. `docker compose exec panel /panel reset` re-opens setup.

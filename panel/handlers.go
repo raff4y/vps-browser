@@ -35,6 +35,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /_vb/api/settings/account", a.requireSession(a.saveAccount))
 	mux.HandleFunc("POST /_vb/api/settings/browser", a.requireSession(a.saveBrowser))
 	mux.HandleFunc("POST /_vb/api/browser/restart", a.requireSession(a.restartBrowser))
+	mux.HandleFunc("POST /_vb/api/browser/close", a.requireSession(a.closeBrowserAndSignOut))
 	mux.HandleFunc("POST /_vb/api/sessions/revoke", a.requireSession(a.revokeSessions))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { a.renderError(w, http.StatusNotFound, "Page not found") })
@@ -112,6 +113,14 @@ func (a *App) authCheck(w http.ResponseWriter, r *http.Request) {
 	case a.tlsMode != "proxy" && hostOnly(r.Host) != cfg.Domain:
 		deny("https://" + cfg.Domain + uri)
 	case validSession(r, cfg):
+		// Opening the browser page starts Chromium again if it was closed.
+		// Only full page loads count, so a forgotten tab that keeps
+		// reconnecting in the background doesn't wake it up.
+		if wantsPage && a.browserClosed() {
+			if err := a.openBrowser(); err != nil {
+				log.Printf("could not start the browser: %v", err)
+			}
+		}
 		w.WriteHeader(http.StatusOK)
 	default:
 		deny("/_vb/login?next=" + url.QueryEscape(uri))
@@ -137,6 +146,7 @@ type loginData struct {
 	Next     string
 	Username string
 	Error    string
+	Notice   string
 }
 
 func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +160,11 @@ func (a *App) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusFound)
 		return
 	}
-	a.render(w, http.StatusOK, "login.html", loginData{Version: version, Domain: cfg.Domain, Next: next})
+	data := loginData{Version: version, Domain: cfg.Domain, Next: next}
+	if r.URL.Query().Get("closed") == "1" {
+		data.Notice = "The browser is closed and isn't using the server's memory. Sign in to start it again."
+	}
+	a.render(w, http.StatusOK, "login.html", data)
 }
 
 func (a *App) loginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -444,11 +458,28 @@ func (a *App) saveBrowser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) restartBrowser(w http.ResponseWriter, r *http.Request) {
-	if err := a.requestBrowserRestart(); err != nil {
+	err := a.openBrowser() // a closed browser just starts
+	if err == nil {
+		err = a.requestBrowserRestart()
+	}
+	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "Could not restart the browser: "+err.Error())
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// closeBrowserAndSignOut shuts Chromium down to free the server's memory and
+// signs this device out. The next time a signed-in user opens the browser
+// page, authCheck starts it again.
+func (a *App) closeBrowserAndSignOut(w http.ResponseWriter, r *http.Request) {
+	if err := a.closeBrowser(); err != nil {
+		jsonError(w, http.StatusInternalServerError, "Could not close the browser: "+err.Error())
+		return
+	}
+	log.Printf("browser closed from the dashboard")
+	clearCookie(w, sessionCookie, "/")
+	writeJSON(w, map[string]any{"ok": true, "url": "/_vb/login?closed=1"})
 }
 
 func (a *App) revokeSessions(w http.ResponseWriter, r *http.Request) {

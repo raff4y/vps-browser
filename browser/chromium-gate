@@ -1,0 +1,9 @@
+#!/bin/bash
+# Stands in front of the image's Chromium launcher (wrapped-chromium). While
+# the browser is closed from the control panel (/vps-browser/stopped exists),
+# the image's watchdog (RESTART_APP=true) still tries to start Chromium again:
+# hold it here, which costs next to nothing, until someone opens the browser.
+while [[ -e /vps-browser/stopped ]]; do
+  sleep 1
+done
+exec /usr/bin/wrapped-chromium-real "$@"

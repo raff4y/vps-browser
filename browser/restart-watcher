@@ -1,16 +1,20 @@
 #!/usr/bin/with-contenv bash
-# Restarts Chromium when the control panel asks: the panel writes a new value
-# to /vps-browser/restart, we stop Chromium, and the image's own watchdog
-# (RESTART_APP=true) starts it again.
+# Carries out the control panel's "Restart" and "Close" buttons, without the
+# panel needing access to Docker:
+# - Restart: the panel writes a new value to /vps-browser/restart, we stop
+#   Chromium, and the image's own watchdog (RESTART_APP=true) starts it again.
+# - Close: the panel creates /vps-browser/stopped, we stop Chromium, and
+#   chromium-gate keeps the watchdog from starting it until the panel removes
+#   the file (the next time someone opens the browser).
 f=/vps-browser/restart
+stopped=/vps-browser/stopped
 last=$(cat "$f" 2>/dev/null)
-while sleep 2; do
-  now=$(cat "$f" 2>/dev/null)
-  [[ "$now" == "$last" ]] && continue
-  last=$now
-  echo "[vps-browser] Restart requested, stopping Chromium"
+was_stopped=no
+
+stop_chromium() {
+  local pids
   pids=$(pgrep -u abc -f /usr/lib/chromium/chromium)
-  [[ -z "$pids" ]] && continue
+  [[ -z "$pids" ]] && return
   # shellcheck disable=SC2086
   kill $pids 2>/dev/null
   for _ in 1 2 3 4 5; do
@@ -20,4 +24,23 @@ while sleep 2; do
   done
   # shellcheck disable=SC2086
   kill -9 $pids 2>/dev/null || true
+}
+
+while sleep 1; do
+  if [[ -e "$stopped" ]]; then
+    if [[ "$was_stopped" == no ]]; then
+      was_stopped=yes
+      echo "[vps-browser] Browser closed from the control panel, stopping Chromium"
+      stop_chromium
+    fi
+  elif [[ "$was_stopped" == yes ]]; then
+    was_stopped=no
+    echo "[vps-browser] Browser opened again, starting Chromium"
+  fi
+
+  now=$(cat "$f" 2>/dev/null)
+  [[ "$now" == "$last" ]] && continue
+  last=$now
+  echo "[vps-browser] Restart requested, stopping Chromium"
+  stop_chromium
 done

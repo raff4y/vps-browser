@@ -7,6 +7,9 @@
       <h1>Sign in</h1>
       <p class="muted">to your private browser at <strong>{{.Domain}}</strong></p>
 
+      {{if .Notice}}
+      <div class="alert alert-info" role="status">{{template "i-power"}}<p>{{.Notice}}</p></div>
+      {{end}}
       {{if .Error}}
       <div class="alert alert-err" role="alert">{{template "i-alert"}}<p>{{.Error}}</p></div>
       {{end}}
