@@ -1,0 +1,46 @@
+# Compose file for deploying with Coolify (set it as the "Docker Compose
+# Location" in Coolify). Coolify's proxy handles the domain and HTTPS, so
+# nothing here publishes host ports. For a plain VPS use docker-compose.yml
+# and setup.sh instead.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # Full Chromium desktop browser. Do NOT give this service a domain in
+  # Coolify - only Caddy may route to it, otherwise the login is skipped.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    restart: unless-stopped
+    logging: *logging
+    shm_size: "2gb"
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+      - TITLE=VPS Browser
+      - CHROME_CLI=${START_PAGE:-https://www.google.com}
+    volumes:
+      - browser-data:/config
+
+  # Login screen in front of the browser. Give THIS service your domain in
+  # Coolify (it listens on port 80).
+  caddy:
+    build: ./coolify
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - browser
+    expose:
+      - "80"
+    environment:
+      - AUTH_USER=${AUTH_USER}
+      - AUTH_HASH=${AUTH_HASH}
+
+volumes:
+  browser-data:

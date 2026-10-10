@@ -61,6 +61,8 @@ It is a self-hosted "remote browser" (browser isolation). The user's device only
 |---|---|
 | `docker-compose.yml` | Two services: `browser` (Chromium) and `caddy` (HTTPS + login). |
 | `Caddyfile` | Caddy config. Reads `DOMAIN`, `ACME_EMAIL`, `AUTH_USER`, `AUTH_HASH` from env via `{$VAR}`. |
+| `docker-compose.coolify.yml` | Variant for Coolify. Coolify's proxy owns 80/443 and does TLS, so nothing publishes host ports; Coolify routes the domain to `caddy:80`. |
+| `coolify/` | `Dockerfile` + plain-HTTP `Caddyfile` (basic auth only) baked into a Caddy image. Baked in because Coolify copies only the compose file to the server, so a `./Caddyfile` bind mount becomes an empty directory and Caddy fails to start. |
 | `.env.example` | Template for `.env`. |
 | `.env` | **Real secrets, git-ignored.** Created by `setup.sh` on the VPS. |
 | `setup.sh` | One-shot installer for an Ubuntu/Debian VPS. Installs Docker, asks for domain, email, username, password, start page and timezone (or reads them from env vars), hashes the password, writes `.env`, checks DNS, opens the ufw firewall, then runs `docker compose up -d`. Safe to re-run. |

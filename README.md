@@ -39,6 +39,15 @@ sudo DOMAIN=browse.example.com ACME_EMAIL=you@example.com \
 
 **Manual install:** `cp .env.example .env`, fill it in (see the comments inside), then `docker compose up -d`.
 
+### Deploy with Coolify
+
+Coolify already runs its own proxy on ports 80/443 and handles HTTPS, so use the Coolify compose file instead of `setup.sh`:
+
+1. Create a **Docker Compose** application from this repo and set **Docker Compose Location** to `/docker-compose.coolify.yml`.
+2. Give the **`caddy`** service your domain (e.g. `https://browse.example.com`). Leave the `browser` service **without** a domain, otherwise the login is skipped.
+3. Add environment variables `AUTH_USER` and `AUTH_HASH` (generate the hash with `docker run --rm caddy:2 caddy hash-password --plaintext 'PASSWORD'`). Tick **Is Literal?** on `AUTH_HASH`, because the hash contains `$` signs. Optionally set `START_PAGE` and `TZ`.
+4. Deploy.
+
 ## Common commands
 
 Run these from the `vps-browser` folder:
