@@ -1,0 +1,60 @@
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # Full Chromium desktop browser, streamed to your own browser as a web page.
+  # It is NOT exposed to the internet directly - only Caddy can reach it.
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: vps-browser
+    restart: unless-stopped
+    logging: *logging
+    shm_size: "2gb"            # Chromium crashes on video-heavy sites without this
+    security_opt:
+      - seccomp:unconfined     # required by Chromium's sandbox inside Docker
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-UTC}
+      - TITLE=VPS Browser
+      - CHROME_CLI=${START_PAGE:-https://www.google.com}
+    volumes:
+      # Bookmarks, history and logins persist here. A named volume (not a host
+      # folder) because the desktop needs Unix sockets inside /config, which
+      # Windows/macOS bind mounts can't hold.
+      - browser-data:/config
+    networks:
+      - internal
+
+  # HTTPS + login screen in front of the browser.
+  caddy:
+    image: caddy:2
+    container_name: vps-browser-caddy
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - browser
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+      - AUTH_USER=${AUTH_USER}
+      - AUTH_HASH=${AUTH_HASH}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data      # TLS certificates
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  browser-data:
+    name: vps-browser-data

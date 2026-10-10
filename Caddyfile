@@ -1,0 +1,19 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# Browser pops up a username/password prompt before anything loads.
+	basic_auth {
+		{$AUTH_USER} {$AUTH_HASH}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# Websockets (the live browser stream) are proxied automatically.
+	reverse_proxy browser:3000
+}
