@@ -84,10 +84,12 @@
     toast("Restarting the browser. It'll be back in about 10 seconds.");
   });
 
-  confirmInline($("#close-area"), $("#close-btn"), "Yes, close and sign out", async () => {
-    const r = await api("/_vb/api/browser/close", {});
-    window.location.href = r.url;
-  });
+  if ($("#close-btn")) { // not shown while the browser is already closed
+    confirmInline($("#close-area"), $("#close-btn"), "Yes, close and sign out", async () => {
+      const r = await api("/_vb/api/browser/close", {});
+      window.location.href = r.url;
+    });
+  }
 
   // ---- Account ----
   const af = $("#account-form");

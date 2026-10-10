@@ -78,8 +78,11 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, cfg Config) {
 	})
 }
 
-func clearCookie(w http.ResponseWriter, name, path string) {
-	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, MaxAge: -1, HttpOnly: true})
+// clearCookie repeats the attributes the cookie was set with, so browsers
+// replace (and so drop) it rather than keeping the Secure one alongside.
+func clearCookie(w http.ResponseWriter, r *http.Request, name, path string) {
+	http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: path, MaxAge: -1, Expires: time.Unix(0, 0),
+		HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteLaxMode})
 }
 
 func hashPassword(pw string) (string, error) {

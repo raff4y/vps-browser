@@ -12,8 +12,13 @@
 <main class="container">
   <section class="card hero">
     <div>
+      {{if .Closed}}
+      <h1>Hi {{.Username}}, your browser is closed</h1>
+      <p>Chromium is shut down, so it isn't using the server's memory. Start it when you need it.</p>
+      {{else}}
       <h1>Hi {{.Username}}, your browser is ready</h1>
       <p>Everything you open runs on this server, so websites see its IP address, not yours.</p>
+      {{end}}
       <div class="stat-row">
         <span class="pill ok">{{template "i-lock"}} HTTPS active</span>
         <span class="pill">{{template "i-server"}} Server IP <span class="mono" data-bind="ip">…</span></span>
@@ -21,10 +26,14 @@
       </div>
     </div>
     <div class="row">
+      {{if .Closed}}
+      <form method="post" action="/_vb/browser/start"><button class="btn btn-primary btn-lg" type="submit">{{template "i-power"}} Start browser</button></form>
+      {{else}}
       <a class="btn btn-primary btn-lg" href="/">Open browser {{template "i-arrow"}}</a>
       <span class="confirm-inline" id="close-area">
-        <button class="btn btn-secondary btn-lg" id="close-btn" type="button" title="Shut Chromium down to free the server's memory, and sign out. It starts again the next time you open it.">{{template "i-power"}} Close browser</button>
+        <button class="btn btn-secondary btn-lg" id="close-btn" type="button" title="Shut Chromium down to free the server's memory, and sign out. It starts again the next time you sign in.">{{template "i-power"}} Close browser</button>
       </span>
+      {{end}}
     </div>
   </section>
 
@@ -52,7 +61,7 @@
           <button class="btn btn-secondary" id="restart-btn" type="button">{{template "i-refresh"}} Restart</button>
         </span>
       </div>
-      <p class="hint">Done browsing? <strong>Close browser</strong> (at the top) shuts Chromium down so it stops using the server's memory, and signs you out. It starts again the next time you open it.</p>
+      <p class="hint">Done browsing? <strong>Close browser</strong> (at the top) shuts Chromium down so it stops using the server's memory, and signs you out. It starts again the next time you sign in.</p>
     </section>
 
     <!-- Account -->

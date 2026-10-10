@@ -32,6 +32,10 @@ while sleep 1; do
       was_stopped=yes
       echo "[vps-browser] Browser closed from the control panel, stopping Chromium"
       stop_chromium
+    elif pgrep -u abc -f /usr/lib/chromium/chromium >/dev/null; then
+      # Something started Chromium without going through chromium-gate.
+      echo "[vps-browser] Chromium started while the browser is closed, stopping it"
+      stop_chromium
     fi
   elif [[ "$was_stopped" == yes ]]; then
     was_stopped=no

@@ -81,7 +81,7 @@ The installer adds a `vps-browser` command:
 | `vps-browser backup` / `restore <file>` | Save or restore the browser profile and settings |
 | `vps-browser uninstall` | Remove everything, including all data |
 
-Most day-to-day changes (domain, password, start page, restarting or closing the browser) are done from the dashboard. **Close browser** shuts Chromium down and signs you out. It starts again the next time you sign in and open it, so an idle server isn't holding Chromium in memory.
+Most day-to-day changes (domain, password, start page, restarting or closing the browser) are done from the dashboard. **Close browser** shuts Chromium down and signs you out. It starts again when you sign in (or press **Start browser** on the dashboard), so an idle server isn't holding Chromium in memory.
 
 ## Troubleshooting
 

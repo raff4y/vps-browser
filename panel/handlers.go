@@ -36,6 +36,7 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /_vb/api/settings/browser", a.requireSession(a.saveBrowser))
 	mux.HandleFunc("POST /_vb/api/browser/restart", a.requireSession(a.restartBrowser))
 	mux.HandleFunc("POST /_vb/api/browser/close", a.requireSession(a.closeBrowserAndSignOut))
+	mux.HandleFunc("POST /_vb/browser/start", a.requireSession(a.startBrowser))
 	mux.HandleFunc("POST /_vb/api/sessions/revoke", a.requireSession(a.revokeSessions))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) { a.renderError(w, http.StatusNotFound, "Page not found") })
@@ -113,13 +114,12 @@ func (a *App) authCheck(w http.ResponseWriter, r *http.Request) {
 	case a.tlsMode != "proxy" && hostOnly(r.Host) != cfg.Domain:
 		deny("https://" + cfg.Domain + uri)
 	case validSession(r, cfg):
-		// Opening the browser page starts Chromium again if it was closed.
-		// Only full page loads count, so a forgotten tab that keeps
-		// reconnecting in the background doesn't wake it up.
+		// A closed browser is only started on purpose (signing in, or the
+		// dashboard's Start button), never just by loading a page: send page
+		// loads to the dashboard, which says it's closed.
 		if wantsPage && a.browserClosed() {
-			if err := a.openBrowser(); err != nil {
-				log.Printf("could not start the browser: %v", err)
-			}
+			http.Redirect(w, r, "/_vb/", http.StatusFound)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 	default:
@@ -194,6 +194,7 @@ func (a *App) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.limiter.Reset(ip)
+	a.startIfClosed("signed in")
 	_ = a.store.Update(func(c *Config) error {
 		rec := LoginRecord{Time: time.Now().UTC(), IP: ip, Agent: truncate(r.UserAgent(), 200)}
 		c.RecentLogins = append([]LoginRecord{rec}, c.RecentLogins...)
@@ -207,7 +208,7 @@ func (a *App) loginSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) logout(w http.ResponseWriter, r *http.Request) {
-	clearCookie(w, sessionCookie, "/")
+	clearCookie(w, r, sessionCookie, "/")
 	http.Redirect(w, r, "/_vb/login", http.StatusSeeOther)
 }
 
@@ -320,7 +321,7 @@ func (a *App) setupSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := a.writePolicy(a.store.Get()); err != nil {
 		log.Printf("warning: could not write browser policy: %v", err)
 	}
-	clearCookie(w, setupCookie, "/_vb/")
+	clearCookie(w, r, setupCookie, "/_vb/")
 	log.Printf("setup complete for %s", domain)
 	url := "https://" + domain + "/"
 	if a.tlsMode == "proxy" {
@@ -349,7 +350,8 @@ func (a *App) dashboard(w http.ResponseWriter, r *http.Request) {
 	cfg := a.store.Get()
 	a.render(w, http.StatusOK, "dashboard.html", struct {
 		Version, Domain, Username string
-	}{version, cfg.Domain, cfg.Username})
+		Closed                    bool
+	}{version, cfg.Domain, cfg.Username, a.browserClosed()})
 }
 
 func (a *App) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -470,16 +472,33 @@ func (a *App) restartBrowser(w http.ResponseWriter, r *http.Request) {
 }
 
 // closeBrowserAndSignOut shuts Chromium down to free the server's memory and
-// signs this device out. The next time a signed-in user opens the browser
-// page, authCheck starts it again.
+// signs this device out. It starts again when someone signs in, or presses
+// Start on the dashboard.
 func (a *App) closeBrowserAndSignOut(w http.ResponseWriter, r *http.Request) {
 	if err := a.closeBrowser(); err != nil {
 		jsonError(w, http.StatusInternalServerError, "Could not close the browser: "+err.Error())
 		return
 	}
 	log.Printf("browser closed from the dashboard")
-	clearCookie(w, sessionCookie, "/")
+	clearCookie(w, r, sessionCookie, "/")
 	writeJSON(w, map[string]any{"ok": true, "url": "/_vb/login?closed=1"})
+}
+
+// startBrowser is the dashboard's "Start browser" button (a plain form).
+func (a *App) startBrowser(w http.ResponseWriter, r *http.Request) {
+	a.startIfClosed("started from the dashboard")
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (a *App) startIfClosed(why string) {
+	if !a.browserClosed() {
+		return
+	}
+	if err := a.openBrowser(); err != nil {
+		log.Printf("could not start the browser: %v", err)
+		return
+	}
+	log.Printf("browser %s", why)
 }
 
 func (a *App) revokeSessions(w http.ResponseWriter, r *http.Request) {
